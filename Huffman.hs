@@ -8,6 +8,8 @@ data HuffmanTree = Leaf Char Integer
                  | SubTree HuffmanTree HuffmanTree Integer
                  deriving(Show)
 
+showStatisticPair :: (Char,Integer) -> String
+showStatisticPair (symbol,weight) = [symbol] ++ " " ++ show weight
 
 doHuffman :: IO ()
 doHuffman  =
@@ -16,17 +18,59 @@ doHuffman  =
       inputFileName <- getLine
       putStrLn "Enter output file name:"
       outputFileName <- getLine
+      putStrLn "Enter y to encode or any another symbol to decode"
+      input <- getLine
+      if head input == 'y'
+      then encode inputFileName outputFileName
+      else decode inputFileName outputFileName
+
+
+encode :: String -> String -> IO()
+encode inputFileName outputFileName =
+  do
       text <- readFile inputFileName
-      let tree = buildTree (buildStatistic text)
+      let statistic = buildStatistic text
+      let tree = buildTree statistic
       let codes = buildCodes tree
-      print $ Data.Map.toList codes
       let encoded = encodeText text codes
-      putStrLn encoded
-      let decoded = decodeText tree encoded
-      putStrLn decoded
-      writeFile outputFileName (show codes)
-      writeFile outputFileName encoded
-      
+      writeEncoded statistic encoded outputFileName
+      putStrLn "Encoding done!"
+
+
+decode :: String -> String -> IO()
+decode inputFileName outputFileName =
+  do
+     (statistic, encoded) <- readEncoded inputFileName
+     let tree = buildTree statistic
+     let decoded = decodeText tree encoded
+     writeFile outputFileName decoded
+     putStrLn "Decoding done!"
+
+
+writeEncoded :: Map Char Integer -> [Char] -> FilePath -> IO ()
+writeEncoded statistic encoded outputFileName
+ = writeFile outputFileName (intercalate "\n" (Prelude.map showStatisticPair (toAscList statistic)) ++ "\n" ++ encoded)
+ 
+readEncoded :: String -> IO (Map Char Integer, String)
+readEncoded encodedFileName = buildEncoded <$> (Data.List.reverse <$> readWordsFrom encodedFileName)
+        where buildEncoded (encoded:statisticWords) = (buildIntStringMapFrom statisticWords, encoded)
+              buildEncoded [] = (Data.Map.empty, [])
+  
+readWordsFrom :: String -> IO [String]
+readWordsFrom fileName = words <$> readFile fileName
+
+getSymbolFromWord :: String -> Char
+getSymbolFromWord word = if length word > 1 then errorWithoutStackTrace "Illegal symbol format in statistic"
+                                            else head word  
+  
+buildIntStringMapFrom :: [String] -> Map Char Integer
+buildIntStringMapFrom statisticWords = Data.Map.fromList (buildPairsArray statisticWords)
+                      where buildPairsArray :: [String] -> [(Char,Integer)]
+                            buildPairsArray [[]] = []
+                            buildPairsArray [] = []
+                            buildPairsArray [_:_] = errorWithoutStackTrace "Illegal input file format: illegal statistic format or encoded text not present"
+                            buildPairsArray (value:key:anotherStatisticWords) = [(getSymbolFromWord key, read value :: Integer)] ++ buildPairsArray anotherStatisticWords
+
 
 weightOf :: HuffmanTree -> Integer
 weightOf (Leaf _ weight) = weight
@@ -49,9 +93,10 @@ comparator firstLeaf secondLeaf | weightOf firstLeaf < weightOf secondLeaf = LT
 
 buildTree :: Map Char Integer -> HuffmanTree
 buildTree statistic = mergeSubTrees (Prelude.map (uncurry Leaf) (Data.Map.toAscList statistic))
-     where  mergeSubTrees [t]    = t
+     where  mergeSubTrees [] = errorWithoutStackTrace "Symbols statistic in file with encoded text is empty"
+            mergeSubTrees [t]    = t
             mergeSubTrees (a:b:cs)  = mergeSubTrees $ insertBy comparator (merge a b) cs
-            
+
             
 buildCodes :: HuffmanTree -> Map Char [Char]
 buildCodes  = fromList . buildCodeList
